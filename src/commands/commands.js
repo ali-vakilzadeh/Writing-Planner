@@ -14,6 +14,7 @@ Office.onReady(() => {
  * @param event {Office.AddinCommands.Event}
  */
 function action(event) {
+  event.completed();
   const message = {
     type: Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
     message: "Performed action.",
@@ -33,3 +34,18 @@ function action(event) {
 
 // Register the function with Office.
 Office.actions.associate("action", action);
+
+function getGlobal() {
+  return typeof self !== "undefined"
+    ? self
+    : typeof window !== "undefined"
+      ? window
+      : typeof global !== "undefined"
+        ? global
+        : undefined
+}
+
+const g = getGlobal()
+
+// The add-in command functions need to be available in global scope
+g.action = action
