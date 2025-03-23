@@ -24,7 +24,7 @@ Office.onReady(() => {
 
 // Render application after Office is initialized
 function render(Component) {
-  ReactDOM.render(<Component isOfficeInitialized={isOfficeInitialized} />, document.getElementById("app"))
+  ReactDOM.render(<Component isOfficeInitialized={isOfficeInitialized} />, document.getElementById("container"))
 }
 
 /* Initial render showing a progress bar */

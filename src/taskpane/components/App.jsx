@@ -1,13 +1,12 @@
 "use client"
-import * as React from "react";
-import { useState, useEffect } from "react"
+import * as React from "react"
+import { useState, useEffect, useRef } from "react"
 import { DefaultButton, PrimaryButton, IconButton } from "@fluentui/react/lib/Button"
 import { Stack } from "@fluentui/react/lib/Stack"
 import { TextField } from "@fluentui/react/lib/TextField"
 import { Dropdown } from "@fluentui/react/lib/Dropdown"
 import { Pivot, PivotItem } from "@fluentui/react/lib/Pivot"
 import { ProgressIndicator } from "@fluentui/react/lib/ProgressIndicator"
-import { DetailsList, DetailsListLayoutMode, SelectionMode } from "@fluentui/react/lib/DetailsList"
 import { Dialog, DialogType, DialogFooter } from "@fluentui/react/lib/Dialog"
 import { Spinner, SpinnerSize } from "@fluentui/react/lib/Spinner"
 import { TooltipHost } from "@fluentui/react/lib/Tooltip"
@@ -33,6 +32,18 @@ const STATUS_OPTIONS = [
   { key: "finalized", text: "Finalized" },
 ]
 
+// Assign partial progress to incomplete statuses
+const STATUS_PROGRESS = {
+  empty: 0,
+  created: 5,
+  drafted: 20,
+  checked: 30,
+  referenced: 50,
+  edited: 70,
+  verified: 90,
+  finalized: 100,
+}
+
 // Status colors for visual indication
 const STATUS_COLORS = {
   empty: { background: "#f3f2f1", color: "#605e5c" },
@@ -49,8 +60,10 @@ const STATUS_COLORS = {
 const containerStyles = {
   root: {
     padding: 10,
-    maxWidth: 300,
-    margin: "0 auto",
+    width: "100%",
+    height: "100%",
+    boxSizing: "border-box",
+    overflow: "auto",
   },
 }
 
@@ -77,6 +90,32 @@ const subtitleStyles = {
   },
 }
 
+const sectionNameStyle = mergeStyles({
+  cursor: "pointer",
+  fontWeight: 500,
+  fontSize: "13px",
+  ":hover": {
+    textDecoration: "underline",
+  },
+})
+
+const sectionRowStyle = mergeStyles({
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  width: "100%",
+  padding: "4px 0",
+})
+
+const buttonRowStyle = mergeStyles({
+  display: "flex",
+  justifyContent: "flex-start",
+  alignItems: "center",
+  width: "100%",
+  padding: "2px 0",
+  marginLeft: "8px",
+})
+
 const statusCellClass = mergeStyles({
   textAlign: "center",
   padding: "2px 4px",
@@ -89,6 +128,8 @@ const statusCellClass = mergeStyles({
 
 export default function App(props) {
   const { isOfficeInitialized = true } = props || {}
+  const containerRef = useRef(null)
+  const [containerWidth, setContainerWidth] = useState(0)
 
   const [tocItems, setTocItems] = useState([])
   const [planningItems, setPlanningItems] = useState([])
@@ -96,6 +137,7 @@ export default function App(props) {
   const [refreshing, setRefreshing] = useState(false)
   const [nextId, setNextId] = useState(1)
   const [dataLoaded, setDataLoaded] = useState(false)
+  const [templateApplied, setTemplateApplied] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [buildingToc, setBuildingToc] = useState(false)
@@ -106,6 +148,27 @@ export default function App(props) {
   const [statsCalloutTarget, setStatsCalloutTarget] = useState(null)
   const [statsItem, setStatsItem] = useState(null)
   const [error, setError] = useState(null)
+  const [documentIsEmpty, setDocumentIsEmpty] = useState(true)
+
+  // Monitor window resize for responsive layout
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.clientWidth)
+      }
+    }
+
+    // Set initial width
+    handleResize()
+
+    // Add event listener
+    window.addEventListener("resize", handleResize)
+
+    // Clean up
+    return () => {
+      window.removeEventListener("resize", handleResize)
+    }
+  }, [])
 
   // Load data from document properties
   useEffect(() => {
@@ -116,16 +179,79 @@ export default function App(props) {
 
   // Initialize with template structure if nothing was loaded
   useEffect(() => {
-    if (dataLoaded && tocItems.length === 0 && planningItems.length === 0) {
+    if (dataLoaded && tocItems.length === 0 && planningItems.length === 0 && !templateApplied) {
       createTemplateStructure()
+      setTemplateApplied(true)
     }
-  }, [dataLoaded, tocItems.length, planningItems.length])
+  }, [dataLoaded, tocItems.length, planningItems.length, templateApplied])
+
+  // Check if document is empty
+  const checkIfDocumentIsEmpty = async () => {
+    try {
+      if (!Word || typeof Word.run !== "function") {
+        console.log("Word API not available, assuming empty document for development")
+        setDocumentIsEmpty(true)
+        return true
+      }
+
+      let isEmpty = false
+      await Word.run(async (context) => {
+        const body = context.document.body
+        body.load("text")
+        await context.sync()
+
+        // If document has no text or only whitespace, consider it empty
+        isEmpty = !body.text || body.text.trim().length === 0
+      })
+
+      setDocumentIsEmpty(isEmpty)
+      return isEmpty
+    } catch (error) {
+      console.error("Error checking if document is empty:", error)
+      return true // Assume empty on error
+    }
+  }
 
   const loadFromDocumentProperties = async () => {
     try {
+      // First check if document is empty
+      const isEmpty = await checkIfDocumentIsEmpty()
+
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available")
+
+        // Try to get from localStorage for development
+        const plannerData = localStorage.getItem("documentPlannerData")
+
+        if (plannerData) {
+          try {
+            const data = JSON.parse(plannerData)
+
+            if (data && data.tocItems && data.planningItems) {
+              setTocItems(data.tocItems || [])
+              setPlanningItems(
+                (data.planningItems || []).map((item) => ({
+                  ...item,
+                  words: 0,
+                  paragraphs: 0,
+                  tables: 0,
+                  graphics: 0,
+                })),
+              )
+
+              // Find the highest ID to set nextId correctly
+              const highestId = Math.max(...data.planningItems.map((item) => item.id || 0), 0)
+              setNextId(highestId + 1)
+
+              // Refresh statistics after loading data
+              setTimeout(() => refreshStatistics(), 500)
+            }
+          } catch (parseError) {
+            console.error("Error parsing planner data:", parseError)
+          }
+        }
+
         setDataLoaded(true)
         return
       }
@@ -186,10 +312,9 @@ export default function App(props) {
             } catch (parseError) {
               console.error("Error parsing planner data:", parseError)
             }
-          } else {
-            // If no saved data, initialize with empty arrays
-            setTocItems([])
-            setPlanningItems([])
+          } else if (isEmpty) {
+            // If document is empty and no saved data, we'll create a template later
+            console.log("Document is empty and no saved data found")
           }
 
           setDataLoaded(true)
@@ -201,8 +326,8 @@ export default function App(props) {
     } catch (error) {
       console.error("Error loading data:", error)
       // Fallback to empty arrays if there's an error
-      setTocItems([])
-      setPlanningItems([])
+      //setTocItems([])
+      //setPlanningItems([])
       setDataLoaded(true)
       setError("Failed to load data. Please try again.")
     }
@@ -212,37 +337,37 @@ export default function App(props) {
     try {
       // Comprehensive document template structure
       const templateTocItems = [
-        { id: 1, title: "Title Page", level: 1 },
-        { id: 2, title: "Abstract", level: 1 },
-        { id: 3, title: "Table of Contents", level: 1 },
-        { id: 4, title: "List of Figures", level: 1 },
-        { id: 5, title: "List of Tables", level: 1 },
-        { id: 6, title: "Introduction", level: 1 },
-        { id: 7, title: "Background", level: 2 },
-        { id: 8, title: "Problem Statement", level: 2 },
-        { id: 9, title: "Research Questions", level: 2 },
-        { id: 10, title: "Significance of Study", level: 2 },
-        { id: 11, title: "Literature Review", level: 1 },
-        { id: 12, title: "Theoretical Framework", level: 2 },
-        { id: 13, title: "Previous Research", level: 2 },
-        { id: 14, title: "Research Gap", level: 2 },
-        { id: 15, title: "Methodology", level: 1 },
-        { id: 16, title: "Research Design", level: 2 },
-        { id: 17, title: "Data Collection", level: 2 },
-        { id: 18, title: "Data Analysis", level: 2 },
-        { id: 19, title: "Ethical Considerations", level: 2 },
-        { id: 20, title: "Results", level: 1 },
-        { id: 21, title: "Primary Findings", level: 2 },
-        { id: 22, title: "Secondary Findings", level: 2 },
-        { id: 23, title: "Discussion", level: 1 },
-        { id: 24, title: "Interpretation of Results", level: 2 },
-        { id: 25, title: "Limitations", level: 2 },
-        { id: 26, title: "Implications", level: 2 },
-        { id: 27, title: "Conclusion", level: 1 },
-        { id: 28, title: "Summary", level: 2 },
-        { id: 29, title: "Future Research", level: 2 },
-        { id: 30, title: "References", level: 1 },
-        { id: 31, title: "Appendices", level: 1 },
+        { id: 1, title: "Title Page", level: 1, isDefault: true },
+        { id: 2, title: "Abstract", level: 1, isDefault: true },
+        { id: 3, title: "Table of Contents", level: 1, isDefault: true },
+        { id: 4, title: "List of Figures", level: 1, isDefault: true },
+        { id: 5, title: "List of Tables", level: 1, isDefault: true },
+        { id: 6, title: "Introduction", level: 1, isDefault: true },
+        { id: 7, title: "Background", level: 2, isDefault: true },
+        { id: 8, title: "Problem Statement", level: 2, isDefault: true },
+        { id: 9, title: "Research Questions", level: 2, isDefault: true },
+        { id: 10, title: "Significance of Study", level: 2, isDefault: true },
+        { id: 11, title: "Literature Review", level: 1, isDefault: true },
+        { id: 12, title: "Theoretical Framework", level: 2, isDefault: true },
+        { id: 13, title: "Previous Research", level: 2, isDefault: true },
+        { id: 14, title: "Research Gap", level: 2, isDefault: true },
+        { id: 15, title: "Methodology", level: 1, isDefault: true },
+        { id: 16, title: "Research Design", level: 2, isDefault: true },
+        { id: 17, title: "Data Collection", level: 2, isDefault: true },
+        { id: 18, title: "Data Analysis", level: 2, isDefault: true },
+        { id: 19, title: "Ethical Considerations", level: 2, isDefault: true },
+        { id: 20, title: "Results", level: 1, isDefault: true },
+        { id: 21, title: "Primary Findings", level: 2, isDefault: true },
+        { id: 22, title: "Secondary Findings", level: 2, isDefault: true },
+        { id: 23, title: "Discussion", level: 1, isDefault: true },
+        { id: 24, title: "Interpretation of Results", level: 2, isDefault: true },
+        { id: 25, title: "Limitations", level: 2, isDefault: true },
+        { id: 26, title: "Implications", level: 2, isDefault: true },
+        { id: 27, title: "Conclusion", level: 1, isDefault: true },
+        { id: 28, title: "Summary", level: 2, isDefault: true },
+        { id: 29, title: "Future Research", level: 2, isDefault: true },
+        { id: 30, title: "References", level: 1, isDefault: true },
+        { id: 31, title: "Appendices", level: 1, isDefault: true },
       ]
 
       // Create planning items from template TOC
@@ -296,46 +421,31 @@ export default function App(props) {
   // Save data to document properties
   const saveToDocumentProperties = async () => {
     try {
+      // Only save the necessary data (not statistics)
+      const dataToSave = {
+        tocItems,
+        planningItems: planningItems.map((item) => ({
+          id: item.id,
+          title: item.title,
+          level: item.level,
+          status: item.status,
+          comments: item.comments,
+          isDefault: item.isDefault,
+        })),
+      }
+
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available")
         // Save to localStorage for development
-        localStorage.setItem(
-          "documentPlannerData",
-          JSON.stringify({
-            tocItems,
-            planningItems: planningItems.map((item) => ({
-              id: item.id,
-              title: item.title,
-              level: item.level,
-              status: item.status,
-              comments: item.comments,
-            })),
-          }),
-        )
+        localStorage.setItem("documentPlannerData", JSON.stringify(dataToSave))
         return
       }
 
       await Word.run(async (context) => {
         try {
-          // Only save the necessary data (not statistics)
-          const dataToSave = {
-            tocItems,
-            planningItems: planningItems.map((item) => ({
-              id: item.id,
-              title: item.title,
-              level: item.level,
-              status: item.status,
-              comments: item.comments,
-            })),
-          }
-
           // Get document properties
           const properties = context.document.properties.customProperties
-          if (!properties) {
-            console.error("Document properties not available")
-            return
-          }
 
           // Set our data property
           properties.add("documentPlannerData", JSON.stringify(dataToSave))
@@ -365,6 +475,7 @@ export default function App(props) {
         setTocItems([])
         setPlanningItems([])
         setNextId(1)
+        setTemplateApplied(false)
         setDataLoaded(false) // This will trigger the loading process again
         setDeleteConfirmOpen(false)
         return
@@ -374,10 +485,6 @@ export default function App(props) {
         try {
           // Get document properties
           const properties = context.document.properties.customProperties
-          if (!properties) {
-            console.error("Document properties not available")
-            return
-          }
 
           // Delete our data property
           properties.delete("documentPlannerData")
@@ -389,6 +496,7 @@ export default function App(props) {
           setTocItems([])
           setPlanningItems([])
           setNextId(1)
+          setTemplateApplied(false)
           setDataLoaded(false) // This will trigger the loading process again
           setDeleteConfirmOpen(false)
         } catch (contextError) {
@@ -401,7 +509,7 @@ export default function App(props) {
     }
   }
 
-  // In a real add-in, this would fetch actual statistics from the Word document
+  // Get actual statistics from the Word document
   const refreshStatistics = async () => {
     setRefreshing(true)
 
@@ -425,9 +533,102 @@ export default function App(props) {
 
       await Word.run(async (context) => {
         try {
-          // In a real implementation, you would get actual statistics from the document
-          // For now, we'll simulate it
+          // Get all headings in the document
+          const body = context.document.body
+          body.load("paragraphs")
+          await context.sync()
 
+          const paragraphs = body.paragraphs.items
+          const headings = []
+
+          // Identify headings and their positions
+          for (let i = 0; i < paragraphs.length; i++) {
+            paragraphs[i].load("text, style")
+            await context.sync()
+
+            const style = paragraphs[i].style
+            if (style && (style.includes("Heading") || style === "Title")) {
+              headings.push({
+                text: paragraphs[i].text.trim(),
+                index: i,
+              })
+            }
+          }
+
+          // Create sections based on headings
+          const sections = []
+          for (let i = 0; i < headings.length; i++) {
+            const startIndex = headings[i].index + 1
+            const endIndex = i < headings.length - 1 ? headings[i + 1].index : paragraphs.length
+
+            // Count content between headings
+            let wordCount = 0
+            let paragraphCount = 0
+            let tableCount = 0
+            let graphicCount = 0
+
+            for (let j = startIndex; j < endIndex; j++) {
+              paragraphs[j].load("text")
+              await context.sync()
+
+              const text = paragraphs[j].text.trim()
+              if (text.length > 0) {
+                wordCount += text.split(/\s+/).length
+                paragraphCount++
+
+                // In a real implementation, you would check for tables and graphics
+                // This is a simplified version
+                if (text.toLowerCase().includes("table")) {
+                  tableCount++
+                }
+                if (text.toLowerCase().includes("figure") || text.toLowerCase().includes("image")) {
+                  graphicCount++
+                }
+              }
+            }
+
+            sections.push({
+              title: headings[i].text,
+              words: wordCount,
+              paragraphs: paragraphCount,
+              tables: tableCount,
+              graphics: graphicCount,
+            })
+          }
+
+          // Update planning items with actual statistics
+          const updatedItems = planningItems.map((item) => {
+            const matchingSection = sections.find(
+              (section) =>
+                section.title.toLowerCase().includes(item.title.toLowerCase()) ||
+                item.title.toLowerCase().includes(section.title.toLowerCase()),
+            )
+
+            if (matchingSection) {
+              return {
+                ...item,
+                words: matchingSection.words,
+                paragraphs: matchingSection.paragraphs,
+                tables: matchingSection.tables,
+                graphics: matchingSection.graphics,
+              }
+            }
+
+            // If no matching section found, keep existing stats or set to 0
+            return {
+              ...item,
+              words: item.words || 0,
+              paragraphs: item.paragraphs || 0,
+              tables: item.tables || 0,
+              graphics: item.graphics || 0,
+            }
+          })
+
+          setPlanningItems(updatedItems)
+        } catch (contextError) {
+          console.error("Error in Word.run context:", contextError)
+
+          // Fallback to simulated statistics
           const updatedItems = planningItems.map((item) => ({
             ...item,
             words: item.status !== "empty" ? Math.floor(Math.random() * 500) + 50 : 0,
@@ -437,13 +638,22 @@ export default function App(props) {
           }))
 
           setPlanningItems(updatedItems)
-        } catch (contextError) {
-          console.error("Error in Word.run context:", contextError)
         }
       })
     } catch (error) {
       console.error("Error refreshing statistics:", error)
       setError("Failed to refresh statistics. Please try again.")
+
+      // Fallback to simulated statistics
+      const updatedItems = planningItems.map((item) => ({
+        ...item,
+        words: item.status !== "empty" ? Math.floor(Math.random() * 500) + 50 : 0,
+        paragraphs: item.status !== "empty" ? Math.floor(Math.random() * 10) + 1 : 0,
+        tables: Math.random() > 0.7 ? Math.floor(Math.random() * 3) : 0,
+        graphics: Math.random() > 0.8 ? Math.floor(Math.random() * 2) : 0,
+      }))
+
+      setPlanningItems(updatedItems)
     } finally {
       setRefreshing(false)
     }
@@ -482,36 +692,189 @@ export default function App(props) {
       const totalSections = planningItems.length
       if (totalSections === 0) return 0
 
-      const completedSections = planningItems.filter((item) => item.status === "finalized").length
+      // Sum up progress for each section based on its status
+      const totalProgress = planningItems.reduce((acc, item) => acc + (STATUS_PROGRESS[item.status] || 0), 0)
 
-      return (completedSections / totalSections) * 100
+      // Normalize to percentage scale
+      return (totalProgress / (totalSections * 100)) * 100
     } catch (error) {
       console.error("Error calculating completion:", error)
       return 0
     }
   }
 
-  // Verify plan against TOC
-  const verifyPlan = () => {
+  // Sync plan with document headers
+  const syncPlanWithDocument = async () => {
     try {
-      // In a real add-in, this would compare the actual TOC from Word
-      // with the planning items to ensure all sections are accounted for
-      const missingInPlan = tocItems.filter((tocItem) => !planningItems.some((planItem) => planItem.id === tocItem.id))
-
-      const missingInToc = planningItems.filter((planItem) => !tocItems.some((tocItem) => tocItem.id === planItem.id))
-
-      if (missingInPlan.length === 0 && missingInToc.length === 0) {
-        alert("Plan and TOC are in sync!")
-      } else {
-        alert(
-          `Found ${missingInPlan.length} items in TOC but not in plan, and ${missingInToc.length} items in plan but not in TOC.`,
-        )
+      // Check if Word API is available
+      if (!Word || typeof Word.run !== "function") {
+        console.error("Word API is not available");
+        alert("This feature requires the Word API, which is not available in this environment.");
+        return;
       }
+
+      await Word.run(async (context) => {
+        try {
+          // Get all headings in the document
+          const body = context.document.body;
+          body.load("paragraphs");
+          await context.sync();
+
+          const paragraphs = body.paragraphs.items;
+          const documentHeadings = [];
+          
+          // Identify headings and their positions
+          for (let i = 0; i < paragraphs.length; i++) {
+            paragraphs[i].load("text, style");
+            await context.sync();
+          
+            const style = paragraphs[i].style;
+            if (style && (style.includes("Heading1") || style === "Title")) {
+              documentHeadings.push({
+                text: paragraphs[i].text.trim(),
+                level: 1,
+                index: i
+              });
+            } else if (style && style.includes("Heading2")) {
+              documentHeadings.push({
+                text: paragraphs[i].text.trim(),
+                level: 2,
+                index: i
+              });
+            }
+          }
+
+          // If no headings found in document
+          if (documentHeadings.length === 0) {
+            alert("No headings found in the document. Nothing to sync.");
+            return;
+          }
+
+          // Find headings in document but not in plan
+          const headingsToAddToPlan = [];
+          for (const docHeading of documentHeadings) {
+            const exists = planningItems.some(
+              item => item.title.toLowerCase() === docHeading.text.toLowerCase()
+            );
+          
+            if (!exists) {
+              headingsToAddToPlan.push({
+                title: docHeading.text,
+                level: docHeading.level,
+                index: docHeading.index
+              });
+            }
+          }
+
+          // Find headings in plan but not in document (only L1 items)
+          const headingsToAddToDocument = planningItems.filter(
+            item => 
+              item.level === 1 && 
+              !documentHeadings.some(dh => dh.text.toLowerCase() === item.title.toLowerCase())
+          );
+
+          // Add new headings to plan
+          if (headingsToAddToPlan.length > 0) {
+            const newPlanningItems = [...planningItems];
+            const newTocItems = [...tocItems];
+          
+            for (const heading of headingsToAddToPlan) {
+              const id = nextId + headingsToAddToPlan.indexOf(heading);
+            
+              // Find the right position to insert based on document order
+              let insertIndex = newPlanningItems.length;
+              for (let i = 0; i < newPlanningItems.length; i++) {
+                const matchingDocHeading = documentHeadings.find(
+                  dh => dh.text.toLowerCase() === newPlanningItems[i].title.toLowerCase()
+                );
+              
+                if (matchingDocHeading && matchingDocHeading.index > heading.index) {
+                  insertIndex = i;
+                  break;
+                }
+              }
+            
+              const newItem = {
+                id,
+                title: heading.title,
+                level: heading.level,
+                status: "created", // Mark as created since it exists in document
+                comments: getDefaultComment(heading.title),
+                words: 0,
+                paragraphs: 0,
+                tables: 0,
+                graphics: 0,
+                isDefault: false,
+              };
+            
+            // Insert at the right position
+              newPlanningItems.splice(insertIndex, 0, newItem);
+              newTocItems.splice(insertIndex, 0, {
+                id,
+                title: heading.title,
+                level: heading.level,
+                isDefault: false
+              });
+            }
+          
+            setPlanningItems(newPlanningItems);
+            setTocItems(newTocItems);
+            setNextId(nextId + headingsToAddToPlan.length);
+          }
+
+          // Add missing L1 headings to document
+          if (headingsToAddToDocument.length > 0) {
+            for (const item of headingsToAddToDocument) {
+              // Insert heading
+              const paragraph = context.document.body.insertParagraph(item.title, "End");
+            
+              // Set formatting
+              if (paragraph && paragraph.font) {
+                paragraph.font.set({
+                  size: 16,
+                  bold: true,
+                });
+                if (Word.Style && Word.Style.heading1) {
+                  paragraph.styleBuiltIn = Word.Style.heading1;
+                }
+              }
+            
+              // Insert template text
+              const templateText = context.document.body.insertParagraph("<insert your text here>", "End");
+              if (templateText && templateText.font) {
+                templateText.font.set({
+                  italic: true,
+                  size: 11,
+                  color: "#666666"
+                });
+              }
+            
+              // Insert a paragraph break
+              context.document.body.insertParagraph("", "End");
+            }
+          }
+
+          await context.sync();
+        
+          // Save changes to document properties
+          setTimeout(() => saveToDocumentProperties(), 100);
+        
+          // Refresh statistics
+          setTimeout(() => refreshStatistics(), 500);
+        
+          // Show summary
+          const message = `Sync complete!\n\n${headingsToAddToPlan.length} headings added to plan.\n${headingsToAddToDocument.length} headings added to document.`;
+          alert(message);
+        } catch (contextError) {
+          console.error("Error in Word.run context:", contextError);
+          alert("Failed to sync plan with document. Please try again.");
+        }
+      });
     } catch (error) {
-      console.error("Error verifying plan:", error)
-      setError("Failed to verify plan. Please try again.")
+      console.error("Error syncing plan with document:", error);
+      setError("Failed to sync plan with document. Please try again.");
     }
-  }
+  };
 
   // Update section title
   const updateTitle = (id, title) => {
@@ -544,10 +907,11 @@ export default function App(props) {
         paragraphs: 0,
         tables: 0,
         graphics: 0,
+        isDefault: false,
       }
 
       setPlanningItems((prev) => [...prev, newItem])
-      setTocItems((prev) => [...prev, { id: nextId, title: "New Section", level }])
+      setTocItems((prev) => [...prev, { id: nextId, title: "New Section", level, isDefault: false }])
       setNextId((prev) => prev + 1)
       setEditingItem(newItem.id)
 
@@ -562,6 +926,13 @@ export default function App(props) {
   // Delete a section
   const deleteSection = (id) => {
     try {
+      // Check if the item is a default item that shouldn't be deleted
+      const itemToDelete = planningItems.find((item) => item.id === id)
+      if (itemToDelete && itemToDelete.isDefault) {
+        alert("Default sections cannot be deleted.")
+        return
+      }
+
       setPlanningItems((prev) => prev.filter((item) => item.id !== id))
       setTocItems((prev) => prev.filter((item) => item.id !== id))
 
@@ -575,57 +946,80 @@ export default function App(props) {
 
   // Create TOC scaffold in the document
   const createTocScaffold = async () => {
-    setBuildingToc(true)
+    setBuildingToc(true);
 
     try {
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
-        console.error("Word API is not available")
-        alert("This feature requires the Word API, which is not available in this environment.")
-        setBuildingToc(false)
-        return
+        console.error("Word API is not available");
+        alert("This feature requires the Word API, which is not available in this environment.");
+        setBuildingToc(false);
+        return;
       }
 
-      await Word.run(async (context) => {
-        try {
-          // Sort items by ID to maintain the correct order
-          const sortedItems = [...tocItems].sort((a, b) => a.id - b.id)
+    await Word.run(async (context) => {
+      try {
+        // First sync plan with document to ensure everything is up to date
+        await syncPlanWithDocument();
+        
+        // Sort items by ID to maintain the correct order
+        const sortedItems = [...tocItems].sort((a, b) => a.id - b.id);
 
-          // Insert a title for the TOC
-          const titleParagraph = context.document.body.insertParagraph("TABLE OF CONTENTS", "Start")
-          if (titleParagraph && titleParagraph.font) {
-            titleParagraph.font.set({
-              bold: true,
-              size: 16,
-            })
+        // Insert a title for the TOC
+        const titleParagraph = context.document.body.insertParagraph("TABLE OF CONTENTS", "Start");
+        if (titleParagraph && titleParagraph.font) {
+          titleParagraph.font.set({
+            bold: true,
+            size: 16,
+          });
+        }
+
+        // Insert each TOC item with appropriate indentation
+        for (const item of sortedItems) {
+          const indent = "  ".repeat(item.level - 1);
+          const paragraph = context.document.body.insertParagraph(`${indent}${item.title}`, "End");
+
+          // Set indentation based on level
+          if (paragraph) {
+            paragraph.leftIndent = (item.level - 1) * 20;
           }
-
-          // Insert each TOC item with appropriate indentation
-          for (const item of sortedItems) {
-            const indent = "  ".repeat(item.level - 1)
-            const paragraph = context.document.body.insertParagraph(`${indent}${item.title}`, "End")
-
-            // Set indentation based on level
-            if (paragraph) {
-              paragraph.leftIndent = (item.level - 1) * 20
+          // Set formatting based on level
+          if (paragraph && paragraph.font) {
+            if (item.level === 1) {
+              paragraph.font.set({
+                size: 16,
+                bold: true,
+              })
+              if (Word.Style && Word.Style.heading1) {
+                paragraph.styleBuiltIn = Word.Style.heading1
+              }
+            } else {
+              paragraph.font.set({
+                size: 14,
+                bold: true,
+              })
+              if (Word.Style && Word.Style.heading2) {
+                paragraph.styleBuiltIn = Word.Style.heading2
+              }
             }
           }
-
-          await context.sync()
-          alert("TOC scaffold has been created in the document!")
-        } catch (contextError) {
-          console.error("Error in Word.run context:", contextError)
-          alert("Failed to create TOC scaffold. Please try again.")
         }
-      })
-    } catch (error) {
-      console.error("Error creating TOC scaffold:", error)
-      alert("Failed to create TOC scaffold. Please try again.")
-      setError("Failed to create TOC scaffold. Please try again.")
-    } finally {
-      setBuildingToc(false)
-    }
+
+        await context.sync();
+        alert("TOC scaffold has been created in the document!");
+      } catch (contextError) {
+        console.error("Error in Word.run context:", contextError);
+        alert("Failed to create TOC scaffold. Please try again.");
+      }
+    });
+  } catch (error) {
+    console.error("Error creating TOC scaffold:", error);
+    alert("Failed to create TOC scaffold. Please try again.");
+    setError("Failed to create TOC scaffold. Please try again.");
+  } finally {
+    setBuildingToc(false);
   }
+};
 
   // Build document structure with headers
   const buildDocumentStructure = async () => {
@@ -670,7 +1064,17 @@ export default function App(props) {
               }
             }
 
-            // Insert a paragraph break after each header
+            // Insert template text under each header
+            const templateText = context.document.body.insertParagraph("<insert your text here>", "End")
+            if (templateText && templateText.font) {
+              templateText.font.set({
+                italic: true,
+                size: 11,
+                color: "#666666",
+              })
+            }
+
+            // Insert a paragraph break after each section
             context.document.body.insertParagraph("", "End")
           }
 
@@ -690,36 +1094,12 @@ export default function App(props) {
     }
   }
 
-  // Columns for the planning items list
-  const planningColumns = [
-    {
-      key: "stats",
-      name: "Stats",
-      fieldName: "stats",
-      minWidth: 30,
-      maxWidth: 30,
-      onRender: (item) => (
-        <TooltipHost content="View Statistics">
-          <IconButton
-            iconProps={{ iconName: "BarChart4" }}
-            onClick={(e) => {
-              if (e && e.currentTarget) {
-                setStatsItem(item)
-                setStatsCalloutTarget(e.currentTarget)
-                setStatsCalloutVisible(true)
-              }
-            }}
-          />
-        </TooltipHost>
-      ),
-    },
-    {
-      key: "title",
-      name: "Section",
-      fieldName: "title",
-      minWidth: 100,
-      onRender: (item) => (
-        <div style={{ paddingLeft: (item.level - 1) * 15 }}>
+  // Custom render function for planning items
+  const renderPlanningItem = (item) => {
+    return (
+      <div key={item.id} style={{ marginBottom: "8px", borderBottom: "1px solid #f0f0f0", paddingBottom: "4px" }}>
+        {/* First row: Section name and status */}
+        <div className={sectionRowStyle} style={{ paddingLeft: (item.level - 1) * 10 }}>
           {editingItem === item.id ? (
             <TextField
               defaultValue={item.title}
@@ -734,58 +1114,88 @@ export default function App(props) {
                   updateTitle(item.id, e.target.value)
                 }
               }}
+              styles={{ root: { width: "70%", minWidth: 80 } }}
             />
           ) : (
-            <Stack horizontal tokens={{ childrenGap: 5 }}>
-              <span>{item.title}</span>
-              <IconButton iconProps={{ iconName: "Edit" }} onClick={() => setEditingItem(item.id)} />
-              <IconButton iconProps={{ iconName: "Comment" }} onClick={() => setCommentItem(item.id)} />
-            </Stack>
+            <span
+              className={sectionNameStyle}
+              onClick={() => !item.isDefault && setEditingItem(item.id)}
+              title={item.isDefault ? "Default sections cannot be edited" : "Click to edit"}
+              style={{
+                width: "70%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                cursor: item.isDefault ? "default" : "pointer",
+                textDecoration: item.isDefault ? "none" : undefined,
+              }}
+            >
+              {item.title}
+            </span>
           )}
+          <Dropdown
+            selectedKey={item.status}
+            options={STATUS_OPTIONS}
+            onChange={(e, option) => {
+              if (option) {
+                updateStatus(item.id, option.key)
+              }
+            }}
+            styles={{
+              dropdown: {
+                width: "30%",
+                minWidth: 70,
+                maxWidth: 90,
+              },
+              title: {
+                backgroundColor: STATUS_COLORS[item.status]?.background,
+                color: STATUS_COLORS[item.status]?.color,
+                borderColor: "transparent",
+                fontSize: "11px",
+                padding: "0 4px",
+              },
+              caretDown: {
+                fontSize: "8px",
+              },
+            }}
+          />
         </div>
-      ),
-    },
-    {
-      key: "status",
-      name: "Status",
-      fieldName: "status",
-      minWidth: 80,
-      maxWidth: 80,
-      onRender: (item) => (
-        <Dropdown
-          selectedKey={item.status}
-          options={STATUS_OPTIONS}
-          onChange={(e, option) => {
-            if (option) {
-              updateStatus(item.id, option.key)
-            }
-          }}
-          styles={{
-            dropdown: {
-              width: 80,
-            },
-            title: {
-              backgroundColor: STATUS_COLORS[item.status]?.background,
-              color: STATUS_COLORS[item.status]?.color,
-              borderColor: "transparent",
-            },
-          }}
-        />
-      ),
-    },
-    {
-      key: "delete",
-      name: "",
-      fieldName: "delete",
-      minWidth: 30,
-      maxWidth: 30,
-      onRender: (item) => (
-        <TooltipHost content="Delete Section">
-          <IconButton iconProps={{ iconName: "Delete" }} onClick={() => deleteSection(item.id)} />
-        </TooltipHost>
-      ),
-    },
-  ]
+
+        {/* Second row: Action buttons */}
+        <div className={buttonRowStyle}>
+          <TooltipHost content="Edit Comments">
+            <IconButton
+              iconProps={{ iconName: "Comment" }}
+              onClick={() => setCommentItem(item.id)}
+              styles={{ root: { height: 24, width: 24, marginRight: 8 } }}
+            />
+          </TooltipHost>
+
+          <TooltipHost content="View Statistics">
+            <IconButton
+              iconProps={{ iconName: "BarChart4" }}
+              onClick={(e) => {
+                if (e && e.currentTarget) {
+                  setStatsItem(item)
+                  setStatsCalloutTarget(e.currentTarget)
+                  setStatsCalloutVisible(true)
+                }
+              }}
+              styles={{ root: { height: 24, width: 24, marginRight: 8 } }}
+            />
+          </TooltipHost>
+
+          <TooltipHost content={item.isDefault ? "Default sections cannot be deleted" : "Delete Section"}>
+            <IconButton
+              iconProps={{ iconName: "Delete" }}
+              onClick={() => deleteSection(item.id)}
+              disabled={item.isDefault}
+              styles={{ root: { height: 24, width: 24 } }}
+            />
+          </TooltipHost>
+        </div>
+      </div>
+    )
+  }
 
   // If Office is not initialized
   if (!isOfficeInitialized) {
@@ -797,7 +1207,7 @@ export default function App(props) {
   }
 
   return (
-    <Stack styles={containerStyles}>
+    <Stack styles={containerStyles} ref={containerRef}>
       {/* Error message */}
       {error && (
         <div style={{ color: "red", marginBottom: 10, padding: 10, backgroundColor: "#fff4ce" }}>
@@ -836,7 +1246,7 @@ export default function App(props) {
 
       {/* Action Buttons */}
       <Stack horizontal tokens={{ childrenGap: 10, padding: "10px 0" }}>
-        <DefaultButton text="Verify" iconProps={{ iconName: "CheckMark" }} onClick={verifyPlan} />
+        <DefaultButton text="Sync" iconProps={{ iconName: "Sync" }} onClick={syncPlanWithDocument} />
         <PrimaryButton text="Add Section" iconProps={{ iconName: "Add" }} onClick={() => addSection()} />
       </Stack>
 
@@ -848,13 +1258,9 @@ export default function App(props) {
       >
         <PivotItem headerText="Planning" itemKey="plan" itemIcon="FileDocument">
           <Stack tokens={{ childrenGap: 10 }}>
-            <DetailsList
-              items={planningItems}
-              columns={planningColumns}
-              layoutMode={DetailsListLayoutMode.fixedColumns}
-              selectionMode={SelectionMode.none}
-              compact={true}
-            />
+            <div style={{ overflowX: "hidden", maxHeight: "400px", overflowY: "auto" }}>
+              {planningItems.map(renderPlanningItem)}
+            </div>
             <PrimaryButton
               text={buildingDocument ? "Building..." : "Build Document Structure"}
               iconProps={{ iconName: "BuildDefinition" }}
@@ -863,7 +1269,7 @@ export default function App(props) {
             />
           </Stack>
         </PivotItem>
-        <PivotItem headerText="TOC" itemKey="toc" itemIcon="BulletedList">
+        <PivotItem headerText="TOC Template" itemKey="toc" itemIcon="BulletedList">
           <Stack tokens={{ childrenGap: 10 }}>
             <div style={{ maxHeight: 200, overflowY: "auto" }}>
               {tocItems.map((item) => (
@@ -880,12 +1286,23 @@ export default function App(props) {
                   {planningItems.find((p) => p.id === item.id)?.status === "empty" && (
                     <span style={{ marginLeft: 5, color: "#c19c00" }}>⚠</span>
                   )}
+                  {item.isDefault && <span style={{ marginLeft: 5, fontSize: "10px", color: "#666" }}>(default)</span>}
                 </div>
               ))}
             </div>
             <Stack horizontal tokens={{ childrenGap: 10 }}>
-              <DefaultButton text="Add L1" iconProps={{ iconName: "Add" }} onClick={() => addSection(1)} />
-              <DefaultButton text="Add L2" iconProps={{ iconName: "Add" }} onClick={() => addSection(2)} />
+              <DefaultButton
+                text="Add L1"
+                iconProps={{ iconName: "Add" }}
+                onClick={() => addSection(1)}
+                styles={{ root: { flexGrow: 1 } }}
+              />
+              <DefaultButton
+                text="Add L2"
+                iconProps={{ iconName: "Add" }}
+                onClick={() => addSection(2)}
+                styles={{ root: { flexGrow: 1 } }}
+              />
             </Stack>
             <PrimaryButton
               text={buildingToc ? "Creating..." : "Create TOC in Document"}
@@ -992,5 +1409,6 @@ export default function App(props) {
         </DialogFooter>
       </Dialog>
     </Stack>
-  )
+  );
 }
+

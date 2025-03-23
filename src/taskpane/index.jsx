@@ -7,7 +7,7 @@ import { FluentProvider, webLightTheme } from "@fluentui/react-components";
 
 const title = "Writing Planner Basic";
 
-const rootElement = document.getElementById("app");
+const rootElement = document.getElementById("container");
 const root = rootElement ? createRoot(rootElement) : undefined;
 
 /* Render application after Office initializes */
