@@ -130,7 +130,6 @@ export default function App(props) {
   const { isOfficeInitialized = true } = props || {}
   const containerRef = useRef(null)
   const [containerWidth, setContainerWidth] = useState(0)
-
   const [tocItems, setTocItems] = useState([])
   const [planningItems, setPlanningItems] = useState([])
   const [activeTab, setActiveTab] = useState("plan")
@@ -245,7 +244,7 @@ export default function App(props) {
               setNextId(highestId + 1)
 
               // Refresh statistics after loading data
-              setTimeout(() => refreshStatistics(), 500)
+              setTimeout(() => refreshStatistics(), 1000)
             }
           } catch (parseError) {
             console.error("Error parsing planner data:", parseError)
@@ -307,7 +306,7 @@ export default function App(props) {
                 setNextId(highestId + 1)
 
                 // Refresh statistics after loading data
-                setTimeout(() => refreshStatistics(), 500)
+                setTimeout(() => refreshStatistics(), 1000)
               }
             } catch (parseError) {
               console.error("Error parsing planner data:", parseError)
@@ -386,10 +385,16 @@ export default function App(props) {
       setNextId(32) // Next ID after the template items
 
       // Refresh statistics for the template items
-      setTimeout(() => refreshStatistics(), 500)
+      setTimeout(() => refreshStatistics(), 1000)
 
       // Save the template to document properties
       setTimeout(() => saveToDocumentProperties(), 1000)
+      saveToDocumentProperties().then(() => {
+        console.log("Template saved successfully");
+      }).catch(error => {
+        console.error("Error saving template:", error);
+        setError("Failed to save template. Please try again.");
+      });
     } catch (error) {
       console.error("Error creating template structure:", error)
       setError("Failed to create template structure. Please try again.")
@@ -456,6 +461,7 @@ export default function App(props) {
           console.error("Error in Word.run context:", contextError)
         }
       })
+      return Promise.resolve()
     } catch (error) {
       console.error("Error saving data:", error)
       setError("Failed to save data. Please try again.")
@@ -860,7 +866,7 @@ export default function App(props) {
           setTimeout(() => saveToDocumentProperties(), 100);
         
           // Refresh statistics
-          setTimeout(() => refreshStatistics(), 500);
+          setTimeout(() => refreshStatistics(), 1000);
         
           // Show summary
           const message = `Sync complete!\n\n${headingsToAddToPlan.length} headings added to plan.\n${headingsToAddToDocument.length} headings added to document.`;
