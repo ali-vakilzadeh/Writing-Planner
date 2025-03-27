@@ -394,7 +394,7 @@ export default function App(props) {
       // Save the template to document properties
       setTimeout(() => saveToDocumentProperties(), 1000)
       saveToDocumentProperties().then(() => {
-        console.log("Template saved successfully");
+        console.log("397-Template saved successfully");
       }).catch(error => {
         console.error("Error saving template:", error);
         setError("Failed to save template. Please try again.");
@@ -430,6 +430,7 @@ export default function App(props) {
   // Save data to document properties
   const saveToDocumentProperties = async () => {
     try {
+
       // Only save the necessary data (not statistics)
       const dataToSave = {
         tocItems,
@@ -448,7 +449,7 @@ export default function App(props) {
         console.error("Word API is not available")
         // Save to localStorage for development
         localStorage.setItem("documentPlannerData", JSON.stringify(dataToSave))
-        return
+        return Promise.reject(new Error("Word API not available"));
       }
 
       await Word.run(async (context) => {
@@ -456,11 +457,15 @@ export default function App(props) {
           // Get document properties
           const properties = context.document.properties.customProperties
 
+          // Remove existing property if it exists
+          const existingProps = properties.items.filter(prop => prop.key === "documentPlannerData")
+          existingProps.forEach(prop => prop.delete())
+
           // Set our data property
           properties.add("documentPlannerData", JSON.stringify(dataToSave))
 
           await context.sync()
-          console.log("Data saved successfully")
+          console.log("463-Data saved successfully - #items: ", planningItems.length)
         } catch (contextError) {
           console.error("Error in Word.run context:", contextError)
         }
