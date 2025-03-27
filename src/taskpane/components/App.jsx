@@ -178,12 +178,14 @@ export default function App(props) {
 
   // Initialize with template structure if nothing was loaded
   useEffect(() => {
+    console.log("181-dataloaded:", dataLoaded,"toc len:", tocItems.length,"planning len:", planningItems.length,"template:", templateApplied)
     if (dataLoaded && tocItems.length === 0 && planningItems.length === 0 && !templateApplied) {
       createTemplateStructure()
+      console.log("183-template induced: ", planningItems)
       setTemplateApplied(true)
     }
   }, [dataLoaded, tocItems.length, planningItems.length, templateApplied])
-
+  console.log("188-dataloaded:", dataLoaded,"toc len:", tocItems.length,"planning len:", planningItems.length,"template:", templateApplied)
   // Check if document is empty
   const checkIfDocumentIsEmpty = async () => {
     try {
@@ -201,6 +203,7 @@ export default function App(props) {
 
         // If document has no text or only whitespace, consider it empty
         isEmpty = !body.text || body.text.trim().length === 0
+        console.log("206-doc is empty")
       })
 
       setDocumentIsEmpty(isEmpty)
@@ -246,6 +249,7 @@ export default function App(props) {
               // Refresh statistics after loading data
               setTimeout(() => refreshStatistics(), 1000)
             }
+            console.log("252-planning items loaded:", planningItems)
           } catch (parseError) {
             console.error("Error parsing planner data:", parseError)
           }
@@ -671,7 +675,7 @@ export default function App(props) {
       setPlanningItems((prev) => prev.map((item) => (item.id === id ? { ...item, status } : item)))
 
       // Save after update
-      setTimeout(() => saveToDocumentProperties(), 100)
+      setTimeout(() => saveToDocumentProperties(), 1000)
     } catch (error) {
       console.error("Error updating status:", error)
       setError("Failed to update status. Please try again.")
@@ -685,7 +689,7 @@ export default function App(props) {
       setCommentItem(null)
 
       // Save after update
-      setTimeout(() => saveToDocumentProperties(), 100)
+      setTimeout(() => saveToDocumentProperties(), 1000)
     } catch (error) {
       console.error("Error updating comments:", error)
       setError("Failed to update comments. Please try again.")
