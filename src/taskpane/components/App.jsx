@@ -132,6 +132,7 @@ export default function App(props) {
   const [containerWidth, setContainerWidth] = useState(0)
   const [tocItems, setTocItems] = useState([])
   const [planningItems, setPlanningItems] = useState([])
+  console.log("135-initiated-planning items:", planningItems.length)
   const [activeTab, setActiveTab] = useState("plan")
   const [refreshing, setRefreshing] = useState(false)
   const [nextId, setNextId] = useState(1)
@@ -148,6 +149,14 @@ export default function App(props) {
   const [statsItem, setStatsItem] = useState(null)
   const [error, setError] = useState(null)
   const [documentIsEmpty, setDocumentIsEmpty] = useState(true)
+  const setPlanningItemsWithLog = (newItems, line) => {
+    console.log("Updating planningItems:", newItems, "@line:", line)
+    setPlanningItems(newItems)
+  }
+  // make sure the planningItems are saved to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem("planningItems", JSON.stringify(planningItems));
+  }, [planningItems])
 
   // Monitor window resize for responsive layout
   useEffect(() => {
@@ -173,6 +182,8 @@ export default function App(props) {
   useEffect(() => {
     if (isOfficeInitialized && !dataLoaded) {
       loadFromDocumentProperties()
+      console.log("177-planning items:", planningItems.length)
+
     }
   }, [isOfficeInitialized, dataLoaded])
 
@@ -181,14 +192,21 @@ export default function App(props) {
     console.log("181-dataloaded:", dataLoaded,"toc len:", tocItems.length,"planning len:", planningItems.length,"template:", templateApplied)
     if (dataLoaded && tocItems.length === 0 && planningItems.length === 0 && !templateApplied) {
       createTemplateStructure()
-      console.log("183-template induced: ", planningItems)
+      console.log("183-template induced: ", planningItems.length)
       setTemplateApplied(true)
     }
+    console.log("188-dataloaded:", dataLoaded,"toc len:", tocItems.length,"planning len:", planningItems.length,"template:", templateApplied)
   }, [dataLoaded, tocItems.length, planningItems.length, templateApplied])
-  console.log("188-dataloaded:", dataLoaded,"toc len:", tocItems.length,"planning len:", planningItems.length,"template:", templateApplied)
+  
   // Check if document is empty
   const checkIfDocumentIsEmpty = async () => {
     try {
+      // Skip checking if the template has already been applied
+      if (templateApplied) {
+        console.log("194-Template already applied, skipping document empty check")
+        setDocumentIsEmpty(false)
+        return false
+      }
       if (!Word || typeof Word.run !== "function") {
         console.log("Word API not available, assuming empty document for development")
         setDocumentIsEmpty(true)
@@ -216,15 +234,35 @@ export default function App(props) {
 
   const loadFromDocumentProperties = async () => {
     try {
+      console.log("213-Loading data from document properties...")
       // First check if document is empty
+          // Skip checking if the template has already been applied
+    if (templateApplied) {
+      console.log("228-Template already applied, skipping document empty check");
+      setDocumentIsEmpty(false)
+      let isEmpty = false
+      return false;
+    }else{
       const isEmpty = await checkIfDocumentIsEmpty()
-
+    }
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available")
 
         // Try to get from localStorage for development
         const plannerData = localStorage.getItem("documentPlannerData")
+        if (!plannerData && planningItems.length === 0) {
+          console.log("Resetting planningItems to empty array due to missing plannerData");
+          setPlanningItemsWithLog([],256);
+        }
+        if (!plannerData) {
+          if (planningItems.length === 0) {
+            console.log("Resetting planningItems to empty array due to missing plannerData");
+            setPlanningItemsWithLog([],261);
+          } else {
+            console.log("Skipping reset of planningItems because it already contains data");
+          }
+        }
 
         if (plannerData) {
           try {
@@ -232,22 +270,22 @@ export default function App(props) {
 
             if (data && data.tocItems && data.planningItems) {
               setTocItems(data.tocItems || [])
-              setPlanningItems(
+              setPlanningItemsWithLog(
                 (data.planningItems || []).map((item) => ({
                   ...item,
                   words: 0,
                   paragraphs: 0,
                   tables: 0,
                   graphics: 0,
-                })),
+                })),280
               )
-
+              console.log("257-planning items:", planningItems.length)
               // Find the highest ID to set nextId correctly
               const highestId = Math.max(...data.planningItems.map((item) => item.id || 0), 0)
               setNextId(highestId + 1)
 
               // Refresh statistics after loading data
-              setTimeout(() => refreshStatistics(), 1000)
+              setTimeout(() => refreshStatistics(), 100)
             }
             console.log("252-planning items loaded:", planningItems)
           } catch (parseError) {
@@ -297,16 +335,16 @@ export default function App(props) {
                 setTocItems(data.tocItems || [])
 
                 // Set planning items but initialize statistics to 0
-                setPlanningItems(
+                setPlanningItemsWithLog(
                   (data.planningItems || []).map((item) => ({
                     ...item,
                     words: 0,
                     paragraphs: 0,
                     tables: 0,
                     graphics: 0,
-                  })),
+                  })),345
                 )
-
+                console.log("322-planning items:", planningItems.length)
                 setNextId(highestId + 1)
 
                 // Refresh statistics after loading data
@@ -328,9 +366,6 @@ export default function App(props) {
       })
     } catch (error) {
       console.error("Error loading data:", error)
-      // Fallback to empty arrays if there's an error
-      //setTocItems([])
-      //setPlanningItems([])
       setDataLoaded(true)
       setError("Failed to load data. Please try again.")
     }
@@ -383,22 +418,23 @@ export default function App(props) {
         tables: 0,
         graphics: 0,
       }))
-
+      console.log("399-planning items:", planningItems.length)
       setTocItems(templateTocItems)
-      setPlanningItems(templatePlanningItems)
+      setPlanningItemsWithLog(templatePlanningItems,423)
+      console.log("402-planning items:", templatePlanningItems)
       setNextId(32) // Next ID after the template items
 
       // Refresh statistics for the template items
       setTimeout(() => refreshStatistics(), 1000)
 
       // Save the template to document properties
-      setTimeout(() => saveToDocumentProperties(), 1000)
-      saveToDocumentProperties().then(() => {
-        console.log("397-Template saved successfully");
-      }).catch(error => {
-        console.error("Error saving template:", error);
-        setError("Failed to save template. Please try again.");
-      });
+      //setTimeout(() => saveToDocumentProperties(), 1000)
+      //saveToDocumentProperties().then(() => {
+      //  console.log("397-Template saved successfully");
+      //}).catch(error => {
+      //  console.error("Error saving template:", error);
+      //  setError("Failed to save template. Please try again.");
+      //});
     } catch (error) {
       console.error("Error creating template structure:", error)
       setError("Failed to create template structure. Please try again.")
@@ -430,7 +466,7 @@ export default function App(props) {
   // Save data to document properties
   const saveToDocumentProperties = async () => {
     try {
-
+      console.log("445-saving data to document properties")
       // Only save the necessary data (not statistics)
       const dataToSave = {
         tocItems,
@@ -480,6 +516,7 @@ export default function App(props) {
   // Delete all saved data
   const deleteAllData = async () => {
     try {
+      console.log("495-Deleting all data initiated...")
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available")
@@ -488,7 +525,7 @@ export default function App(props) {
 
         // Reset the state
         setTocItems([])
-        setPlanningItems([])
+        setPlanningItemsWithLog([],528)
         setNextId(1)
         setTemplateApplied(false)
         setDataLoaded(false) // This will trigger the loading process again
@@ -509,7 +546,7 @@ export default function App(props) {
 
           // Reset the state
           setTocItems([])
-          setPlanningItems([])
+          setPlanningItemsWithLog([],549)
           setNextId(1)
           setTemplateApplied(false)
           setDataLoaded(false) // This will trigger the loading process again
@@ -540,8 +577,9 @@ export default function App(props) {
           tables: Math.random() > 0.7 ? Math.floor(Math.random() * 3) : 0,
           graphics: Math.random() > 0.8 ? Math.floor(Math.random() * 2) : 0,
         }))
-
-        setPlanningItems(updatedItems)
+        console.log("Simulated statistics before:", planningItems)
+        setPlanningItemsWithLog(updatedItems,581)
+        console.log("560-Simulated statistics after:", planningItems)
         setRefreshing(false)
         return
       }
@@ -639,7 +677,7 @@ export default function App(props) {
             }
           })
 
-          setPlanningItems(updatedItems)
+          //setPlanningItemsWithLog(updatedItems,680)
         } catch (contextError) {
           console.error("Error in Word.run context:", contextError)
 
@@ -652,7 +690,7 @@ export default function App(props) {
             graphics: Math.random() > 0.8 ? Math.floor(Math.random() * 2) : 0,
           }))
 
-          setPlanningItems(updatedItems)
+          setPlanningItemsWithLog(updatedItems,693)
         }
       })
     } catch (error) {
@@ -668,7 +706,9 @@ export default function App(props) {
         graphics: Math.random() > 0.8 ? Math.floor(Math.random() * 2) : 0,
       }))
 
-      setPlanningItems(updatedItems)
+      setPlanningItemsWithLog(updatedItems,709)
+      console.log("688-planning items:", planningItems.length)
+
     } finally {
       setRefreshing(false)
     }
@@ -677,8 +717,8 @@ export default function App(props) {
   // Update status of a section
   const updateStatus = (id, status) => {
     try {
-      setPlanningItems((prev) => prev.map((item) => (item.id === id ? { ...item, status } : item)))
-
+      setPlanningItemsWithLog((prev) => prev.map((item) => (item.id === id ? { ...item, status } : item)),720)
+      console.log("697-planning items:", planningItems.length)
       // Save after update
       setTimeout(() => saveToDocumentProperties(), 1000)
     } catch (error) {
@@ -690,7 +730,7 @@ export default function App(props) {
   // Update comments for a section
   const updateComments = (id, comments) => {
     try {
-      setPlanningItems((prev) => prev.map((item) => (item.id === id ? { ...item, comments } : item)))
+      setPlanningItemsWithLog((prev) => prev.map((item) => (item.id === id ? { ...item, comments } : item)),733)
       setCommentItem(null)
 
       // Save after update
@@ -724,7 +764,7 @@ export default function App(props) {
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available");
-        alert("This feature requires the Word API, which is not available in this environment.");
+        console.log("This feature requires the Word API, which is not available in this environment.");
         return;
       }
 
@@ -761,7 +801,7 @@ export default function App(props) {
 
           // If no headings found in document
           if (documentHeadings.length === 0) {
-            alert("No headings found in the document. Nothing to sync.");
+            console.log("No headings found in the document. Nothing to sync.");
             return;
           }
 
@@ -832,7 +872,8 @@ export default function App(props) {
               });
             }
           
-            setPlanningItems(newPlanningItems);
+            setPlanningItemsWithLog(newPlanningItems,875);
+            console.log("852-planning items:", planningItems.length)
             setTocItems(newTocItems);
             setNextId(nextId + headingsToAddToPlan.length);
           }
@@ -879,10 +920,10 @@ export default function App(props) {
         
           // Show summary
           const message = `Sync complete!\n\n${headingsToAddToPlan.length} headings added to plan.\n${headingsToAddToDocument.length} headings added to document.`;
-          alert(message);
+          console.log(message);
         } catch (contextError) {
           console.error("Error in Word.run context:", contextError);
-          alert("Failed to sync plan with document. Please try again.");
+          console.log("Failed to sync plan with document. Please try again.");
         }
       });
     } catch (error) {
@@ -894,8 +935,8 @@ export default function App(props) {
   // Update section title
   const updateTitle = (id, title) => {
     try {
-      setPlanningItems((prev) => prev.map((item) => (item.id === id ? { ...item, title } : item)))
-
+      setPlanningItemsWithLog((prev) => prev.map((item) => (item.id === id ? { ...item, title } : item)),938)
+      console.log("914-planning items:", planningItems.length)
       // Also update in TOC items
       setTocItems((prev) => prev.map((item) => (item.id === id ? { ...item, title } : item)))
 
@@ -925,7 +966,7 @@ export default function App(props) {
         isDefault: false,
       }
 
-      setPlanningItems((prev) => [...prev, newItem])
+      setPlanningItemsWithLog((prev) => [...prev, newItem],969)
       setTocItems((prev) => [...prev, { id: nextId, title: "New Section", level, isDefault: false }])
       setNextId((prev) => prev + 1)
       setEditingItem(newItem.id)
@@ -944,11 +985,12 @@ export default function App(props) {
       // Check if the item is a default item that shouldn't be deleted
       const itemToDelete = planningItems.find((item) => item.id === id)
       if (itemToDelete && itemToDelete.isDefault) {
-        alert("Default sections cannot be deleted.")
+        console.log("Default sections cannot be deleted.")
         return
       }
 
-      setPlanningItems((prev) => prev.filter((item) => item.id !== id))
+      setPlanningItemsWithLog((prev) => prev.filter((item) => item.id !== id),992)
+      console.log("968-planning items:", planningItems.length)
       setTocItems((prev) => prev.filter((item) => item.id !== id))
 
       // Save after update
@@ -967,7 +1009,7 @@ export default function App(props) {
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available");
-        alert("This feature requires the Word API, which is not available in this environment.");
+        console.log("This feature requires the Word API, which is not available in this environment.");
         setBuildingToc(false);
         return;
       }
@@ -1021,15 +1063,15 @@ export default function App(props) {
         }
 
         await context.sync();
-        alert("TOC scaffold has been created in the document!");
+        console.log("TOC scaffold has been created in the document!");
       } catch (contextError) {
         console.error("Error in Word.run context:", contextError);
-        alert("Failed to create TOC scaffold. Please try again.");
+        console.log("Failed to create TOC scaffold. Please try again.");
       }
     });
   } catch (error) {
     console.error("Error creating TOC scaffold:", error);
-    alert("Failed to create TOC scaffold. Please try again.");
+    console.log("Failed to create TOC scaffold. Please try again.");
     setError("Failed to create TOC scaffold. Please try again.");
   } finally {
     setBuildingToc(false);
@@ -1044,7 +1086,7 @@ export default function App(props) {
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available")
-        alert("This feature requires the Word API, which is not available in this environment.")
+        console.log("This feature requires the Word API, which is not available in this environment.")
         setBuildingDocument(false)
         return
       }
@@ -1094,15 +1136,15 @@ export default function App(props) {
           }
 
           await context.sync()
-          alert("Document structure has been built with headers!")
+          console.log("Document structure has been built with headers!")
         } catch (contextError) {
           console.error("Error in Word.run context:", contextError)
-          alert("Failed to build document structure. Please try again.")
+          console.log("Failed to build document structure. Please try again.")
         }
       })
     } catch (error) {
       console.error("Error building document structure:", error)
-      alert("Failed to build document structure. Please try again.")
+      console.log("Failed to build document structure. Please try again.")
       setError("Failed to build document structure. Please try again.")
     } finally {
       setBuildingDocument(false)
@@ -1320,7 +1362,7 @@ export default function App(props) {
               />
             </Stack>
             <PrimaryButton
-              text={buildingToc ? "Creating..." : "Create TOC in Document"}
+              text={buildingToc ? "Creating..." : "Create Plan with this TOC"}
               iconProps={{ iconName: "FileTemplate" }}
               onClick={createTocScaffold}
               disabled={buildingToc}
@@ -1371,9 +1413,9 @@ export default function App(props) {
               rows={5}
               value={planningItems.find((item) => item.id === commentItem)?.comments || ""}
               onChange={(e, newValue) => {
-                setPlanningItems((prev) =>
+                setPlanningItemsWithLog((prev) =>
                   prev.map((item) => (item.id === commentItem ? { ...item, comments: newValue || "" } : item)),
-                )
+              )
               }}
             />
             <PrimaryButton
