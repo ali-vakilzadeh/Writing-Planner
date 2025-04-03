@@ -402,7 +402,7 @@ export default function App(props) {
       // Save the template to document properties
       setTimeout(() => saveToDocumentProperties(), 1000)
       saveToDocumentProperties().then(() => {
-        console.log("397-Template saved successfully");
+        console.log("Template saved successfully");
       }).catch(error => {
         console.error("Error saving template:", error);
         setError("Failed to save template. Please try again.");
@@ -729,7 +729,7 @@ export default function App(props) {
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available");
-        console.log("This feature requires the Word API, which is not available in this environment.");
+        console.log("Sync plan to document requires the Word API, which is not available in this environment.");
         return;
       }
 
@@ -953,7 +953,6 @@ export default function App(props) {
       //}
 
       setPlanningItems((prev) => prev.filter((item) => item.id !== id))
-      console.log("968-planning items:", planningItems.length)
       setTocItems((prev) => prev.filter((item) => item.id !== id))
 
       // Save after update
@@ -972,7 +971,7 @@ export default function App(props) {
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available");
-        console.log("This feature requires the Word API, which is not available in this environment.");
+        console.log("Create TOC Scaffold requires the Word API, which is not available in this environment.");
         setBuildingToc(false);
         return;
       }
@@ -1048,7 +1047,7 @@ export default function App(props) {
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available")
-        console.log("This feature requires the Word API, which is not available in this environment.")
+        console.log("Build Doc Structure requires the Word API, which is not available in this environment.")
         setBuildingDocument(false)
         return
       }
