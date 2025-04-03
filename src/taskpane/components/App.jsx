@@ -1203,7 +1203,6 @@ export default function App(props) {
             />
           </TooltipHost>
 
-          // <TooltipHost content={item.isDefault ? "Default sections cannot be deleted" : "Delete Section"}>
           <TooltipHost content={"Delete Section"}>
             <IconButton
               iconProps={{ iconName: "Delete" }}
@@ -1401,12 +1400,12 @@ export default function App(props) {
         dialogContentProps={{
           type: DialogType.normal,
           title: "About Writing Planner",
-          subText: "Created with joy by V0.dev (CC)2025",
+          subText: "Created By Ali Vakilzadeh (CC)2025 using V0.dev",
         }}
       >
         <div style={{ margin: "20px 0" }}>
           <p>Contact: ali.vakilzadeh@gmail.com</p>
-          <p style={{ marginTop: 10 }}>This add-in helps you plan and structure your documents before writing.</p>
+          <p style={{ marginTop: 10 }}>Plan and structure your documents before writing. Monitor and control your progress before publishing.</p>
         </div>
         <DialogFooter>
           <PrimaryButton text="Close" onClick={() => setAboutOpen(false)} />
