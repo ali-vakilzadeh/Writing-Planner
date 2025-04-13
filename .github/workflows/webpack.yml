@@ -21,7 +21,13 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-
+        
+    - name: install pnpm
+      uses: actions/setup-node@v3
+        with:
+          node-version: '19' # Specify the Node.js version
+          cache: 'pnpm' # Enable caching for pnpm
+          
     - name: Build
       run: |
         npm install pnpm
