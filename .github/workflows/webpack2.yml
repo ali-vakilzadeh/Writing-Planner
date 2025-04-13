@@ -24,9 +24,9 @@ jobs:
         
     - name: install pnpm
       uses: actions/setup-node@v3
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'pnpm' 
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'pnpm' 
           
     - name: Build
       run: |
