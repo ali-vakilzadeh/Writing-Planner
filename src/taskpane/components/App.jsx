@@ -126,6 +126,28 @@ const statusCellClass = mergeStyles({
   minWidth: 70,
 })
 
+// Helper function to generate default comments based on section title
+const getDefaultComment = (title) => {
+  if (!title) return ""
+
+  const commentTemplates = {
+    "Title Page": "Include title, author name, date, and institutional affiliation.",
+    Abstract: "Brief summary of the entire document (150-250 words).",
+    Introduction: "Introduce the topic and provide context for the reader.",
+    Background: "Provide relevant background information on the topic.",
+    "Problem Statement": "Clearly state the problem being addressed.",
+    "Research Questions": "List the specific questions this document aims to answer.",
+    "Literature Review": "Analyze and synthesize relevant existing research.",
+    Methodology: "Describe the methods used to collect and analyze data.",
+    Results: "Present findings without interpretation.",
+    Discussion: "Interpret results and connect to existing literature.",
+    Conclusion: "Summarize key findings and their implications.",
+    References: "List all sources cited in the document.",
+  }
+
+  return commentTemplates[title] || ""
+}
+
 export default function App(props) {
   const { isOfficeInitialized = true } = props || {}
   const containerRef = useRef(null)
@@ -150,8 +172,12 @@ export default function App(props) {
   const [documentIsEmpty, setDocumentIsEmpty] = useState(true)
 
   // Add this to the state variables near the top of the component (around line 120)
+  const [showTemplateButton, setShowTemplateButton] = useState(true)
+  const [deleteButtonTimer, setDeleteButtonTimer] = useState(null)
   const [selectedTemplateItems, setSelectedTemplateItems] = useState({})
   const [editingTocItem, setEditingTocItem] = useState(null)
+  // Add a new state variable after the other state variables (around line 120)
+  const [templateJustApplied, setTemplateJustApplied] = useState(false)
 
   // make sure the planningItems are saved to localStorage whenever they change
   useEffect(() => {
@@ -185,13 +211,16 @@ export default function App(props) {
     }
   }, [isOfficeInitialized, dataLoaded])
 
-  // Initialize with template structure if nothing was loaded
+  // Replace the existing useEffect for template application with this:
   useEffect(() => {
-    if (dataLoaded && tocItems.length === 0 && planningItems.length === 0 && !templateApplied) {
-      createTemplateStructure()
-      setTemplateApplied(true)
+    if (dataLoaded && tocItems.length === 0 && planningItems.length === 0) {
+      // Don't automatically apply template, just show the template button
+      setShowTemplateButton(true)
+    } else if (planningItems.length > 0) {
+      // If we have planning items, hide the template button
+      setShowTemplateButton(false)
     }
-  }, [dataLoaded, tocItems.length, planningItems.length, templateApplied])
+  }, [dataLoaded, tocItems.length, planningItems.length])
 
   // Check if document is empty
   const checkIfDocumentIsEmpty = async () => {
@@ -224,115 +253,158 @@ export default function App(props) {
     }
   }
 
+  // Replace the existing loadFromDocumentProperties function with this improved version:
   const loadFromDocumentProperties = async () => {
     try {
+      console.log("Starting to load document properties")
+
       // First check if document is empty
       // Skip checking if the template has already been applied
+      let isEmpty = false
       if (templateApplied) {
         setDocumentIsEmpty(false)
-        const isEmpty = false
-        return false
       } else {
-        const isEmpty = await checkIfDocumentIsEmpty()
+        isEmpty = await checkIfDocumentIsEmpty()
       }
+
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
-        console.error("Word API is not available")
+        console.log("Word API not available, trying localStorage")
 
         // Try to get from localStorage for development
         const plannerData = localStorage.getItem("documentPlannerData")
-        if (!plannerData && planningItems.length === 0) {
-          setPlanningItems([])
-        }
 
         if (plannerData) {
           try {
+            console.log("Found data in localStorage:", plannerData.substring(0, 100) + "...")
             const data = JSON.parse(plannerData)
 
             if (data && data.tocItems && data.planningItems) {
+              console.log(`Loading ${data.tocItems.length} TOC items and ${data.planningItems.length} planning items`)
+
+              // Set template applied to true to prevent overwriting with template
+              setTemplateApplied(true)
+
               setTocItems(data.tocItems || [])
               setPlanningItems(
                 (data.planningItems || []).map((item) => ({
                   ...item,
-                  words: 0,
-                  paragraphs: 0,
-                  tables: 0,
-                  graphics: 0,
+                  words: item.words || 0,
+                  paragraphs: item.paragraphs || 0,
+                  tables: item.tables || 0,
+                  graphics: item.graphics || 0,
                 })),
               )
+
               // Find the highest ID to set nextId correctly
               const highestId = Math.max(...data.planningItems.map((item) => item.id || 0), 0)
               setNextId(highestId + 1)
 
+              // Initialize selected items for template items
+              const initialSelectedItems = {}
+              data.tocItems.forEach((item) => {
+                if (item.isDefault) {
+                  initialSelectedItems[item.id] = true
+                }
+              })
+              setSelectedTemplateItems(initialSelectedItems)
+
               // Refresh statistics after loading data
-              setTimeout(() => refreshStatistics(), 100)
+              setTimeout(() => refreshStatistics(), 500)
             }
           } catch (parseError) {
             console.error("Error parsing planner data:", parseError)
           }
+        } else {
+          console.log("No data found in localStorage")
         }
 
         setDataLoaded(true)
         return
       }
 
+      console.log("Using Word API to load data")
       await Word.run(async (context) => {
         try {
           // Get document properties
           const properties = context.document.properties.customProperties
-          if (!properties) {
-            console.error("Document properties not available")
-            setDataLoaded(true)
-            return
-          }
-
-          properties.load("key,value")
+          properties.load("items")
           await context.sync()
+
+          console.log("Loaded document properties")
 
           // Find our data property
           let plannerData = null
           if (properties.items && Array.isArray(properties.items)) {
+            console.log(`Found ${properties.items.length} custom properties`)
+
+            for (let i = 0; i < properties.items.length; i++) {
+              properties.items[i].load("key,value")
+            }
+            await context.sync()
+
             for (let i = 0; i < properties.items.length; i++) {
               if (properties.items[i] && properties.items[i].key === "documentPlannerData") {
                 plannerData = properties.items[i].value
+                console.log("Found documentPlannerData property")
                 break
               }
             }
           } else {
-            // Try to get from localStorage for development
+            console.log("No custom properties found or items is not an array")
+          }
+
+          if (!plannerData) {
+            // Try to get from localStorage as fallback
             plannerData = localStorage.getItem("documentPlannerData")
+            console.log("Falling back to localStorage")
           }
 
           if (plannerData) {
             try {
+              console.log("Parsing planner data")
               const data = JSON.parse(plannerData)
 
               if (data && data.tocItems && data.planningItems) {
+                console.log(`Loading ${data.tocItems.length} TOC items and ${data.planningItems.length} planning items`)
+
+                // Set template applied to true to prevent overwriting with template
+                setTemplateApplied(true)
+
                 // Find the highest ID to set nextId correctly
                 const highestId = Math.max(...data.planningItems.map((item) => item.id || 0), 0)
 
                 setTocItems(data.tocItems || [])
 
-                // Set planning items but initialize statistics to 0
+                // Set planning items but preserve statistics if they exist
                 setPlanningItems(
                   (data.planningItems || []).map((item) => ({
                     ...item,
-                    words: 0,
-                    paragraphs: 0,
-                    tables: 0,
-                    graphics: 0,
+                    words: item.words || 0,
+                    paragraphs: item.paragraphs || 0,
+                    tables: item.tables || 0,
+                    graphics: item.graphics || 0,
                   })),
                 )
+
                 setNextId(highestId + 1)
 
+                // Initialize selected items for template items
+                const initialSelectedItems = {}
+                data.tocItems.forEach((item) => {
+                  if (item.isDefault) {
+                    initialSelectedItems[item.id] = true
+                  }
+                })
+                setSelectedTemplateItems(initialSelectedItems)
+
                 // Refresh statistics after loading data
-                setTimeout(() => refreshStatistics(), 1000)
+                setTimeout(() => refreshStatistics(), 500)
               }
             } catch (parseError) {
               console.error("Error parsing planner data:", parseError)
             }
           } else if (isEmpty) {
-            // If document is empty and no saved data, we'll create a template later
             console.log("Document is empty and no saved data found")
           }
 
@@ -399,6 +471,8 @@ export default function App(props) {
       setTocItems(templateTocItems)
       setPlanningItems(templatePlanningItems)
       setNextId(32) // Next ID after the template items
+      setShowTemplateButton(false)
+      setTemplateJustApplied(true) // Set flag to prevent immediate refresh
 
       // Refresh statistics for the template items
       setTimeout(() => refreshStatistics(), 1000)
@@ -426,32 +500,14 @@ export default function App(props) {
     }
   }
 
-  // Helper function to generate default comments based on section title
-  const getDefaultComment = (title) => {
-    if (!title) return ""
+  // Also update the saveToDocumentProperties function to ensure data is saved correctly
+  // Around line 450, update the saveToDocumentProperties function:
 
-    const commentTemplates = {
-      "Title Page": "Include title, author name, date, and institutional affiliation.",
-      Abstract: "Brief summary of the entire document (150-250 words).",
-      Introduction: "Introduce the topic and provide context for the reader.",
-      Background: "Provide relevant background information on the topic.",
-      "Problem Statement": "Clearly state the problem being addressed.",
-      "Research Questions": "List the specific questions this document aims to answer.",
-      "Literature Review": "Analyze and synthesize relevant existing research.",
-      Methodology: "Describe the methods used to collect and analyze data.",
-      Results: "Present findings without interpretation.",
-      Discussion: "Interpret results and connect to existing literature.",
-      Conclusion: "Summarize key findings and their implications.",
-      References: "List all sources cited in the document.",
-    }
-
-    return commentTemplates[title] || ""
-  }
-
-  // Save data to document properties
   const saveToDocumentProperties = async () => {
     try {
-      // Only save the necessary data (not statistics)
+      console.log("Saving data to document properties")
+
+      // Only save the necessary data (including statistics for persistence)
       const dataToSave = {
         tocItems,
         planningItems: planningItems.map((item) => ({
@@ -461,30 +517,58 @@ export default function App(props) {
           status: item.status,
           comments: item.comments,
           isDefault: item.isDefault,
+          words: item.words || 0,
+          paragraphs: item.paragraphs || 0,
+          tables: item.tables || 0,
+          graphics: item.graphics || 0,
         })),
       }
+
+      // Save to localStorage for backup and development
+      localStorage.setItem("documentPlannerData", JSON.stringify(dataToSave))
+      console.log("Data saved to localStorage")
 
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available")
-        // Save to localStorage for development
-        localStorage.setItem("documentPlannerData", JSON.stringify(dataToSave))
-        return Promise.reject(new Error("Word API not available"))
+        return Promise.resolve() // Resolve since we saved to localStorage
       }
 
       await Word.run(async (context) => {
         try {
           // Get document properties
           const properties = context.document.properties.customProperties
+          properties.load("items")
+          await context.sync()
 
           // Remove existing property if it exists
-          const existingProps = properties.items.filter((prop) => prop.key === "documentPlannerData")
-          existingProps.forEach((prop) => prop.delete())
+          let existingPropFound = false
+          if (properties.items && Array.isArray(properties.items)) {
+            for (let i = 0; i < properties.items.length; i++) {
+              properties.items[i].load("key")
+            }
+            await context.sync()
+
+            for (let i = 0; i < properties.items.length; i++) {
+              if (properties.items[i] && properties.items[i].key === "documentPlannerData") {
+                properties.items[i].delete()
+                existingPropFound = true
+                console.log("Deleted existing documentPlannerData property")
+                break
+              }
+            }
+
+            if (existingPropFound) {
+              await context.sync()
+            }
+          }
 
           // Set our data property
           properties.add("documentPlannerData", JSON.stringify(dataToSave))
+          console.log("Added new documentPlannerData property")
 
           await context.sync()
+          console.log("Data saved successfully to document properties")
         } catch (contextError) {
           console.error("Error in Word.run context:", contextError)
         }
@@ -493,6 +577,7 @@ export default function App(props) {
     } catch (error) {
       console.error("Error saving data:", error)
       setError("Failed to save data. Please try again.")
+      return Promise.reject(error)
     }
   }
 
@@ -543,9 +628,20 @@ export default function App(props) {
     }
   }
 
-  // Get actual statistics from the Word document
+  // Update the refreshStatistics function to correctly extract data
+  // Around line 500, update the refreshStatistics function:
+
+  // Modify the refreshStatistics function to check for templateJustApplied
+  // Replace the existing refreshStatistics function with this:
   const refreshStatistics = async () => {
     setRefreshing(true)
+
+    // If template was just applied, don't refresh from Word API
+    if (templateJustApplied) {
+      setTemplateJustApplied(false)
+      setRefreshing(false)
+      return
+    }
 
     try {
       // Check if Word API is available
@@ -566,26 +662,48 @@ export default function App(props) {
 
       await Word.run(async (context) => {
         try {
-          // Get all headings in the document
+          console.log("Refreshing statistics from document")
+
+          // Get all content in the document
           const body = context.document.body
-          body.load("paragraphs")
+          body.load("paragraphs,tables,inlinePictures")
           await context.sync()
 
           const paragraphs = body.paragraphs.items
-          const headings = []
+          const tables = body.tables ? body.tables.items : []
+          const pictures = body.inlinePictures ? body.inlinePictures.items : []
+
+          console.log(
+            `Document has ${paragraphs.length} paragraphs, ${tables.length} tables, ${pictures.length} pictures`,
+          )
+
+          // Load paragraph properties
+          for (let i = 0; i < paragraphs.length; i++) {
+            paragraphs[i].load("text,style")
+          }
+          await context.sync()
 
           // Identify headings and their positions
+          const headings = []
           for (let i = 0; i < paragraphs.length; i++) {
-            paragraphs[i].load("text, style")
-            await context.sync()
-
             const style = paragraphs[i].style
-            if (style && (style.includes("Heading") || style === "Title")) {
+            const text = paragraphs[i].text.trim()
+
+            if (style && (style.includes("Heading") || style === "Title") && text) {
               headings.push({
-                text: paragraphs[i].text.trim(),
+                text: text,
                 index: i,
+                level: style.includes("Heading1") || style === "Title" ? 1 : style.includes("Heading2") ? 2 : 3,
               })
             }
+          }
+
+          console.log(`Found ${headings.length} headings in document`)
+
+          // If no headings, can't calculate section statistics
+          if (headings.length === 0) {
+            setRefreshing(false)
+            return
           }
 
           // Create sections based on headings
@@ -600,28 +718,35 @@ export default function App(props) {
             let tableCount = 0
             let graphicCount = 0
 
+            // Count paragraphs and words
             for (let j = startIndex; j < endIndex; j++) {
-              paragraphs[j].load("text")
-              await context.sync()
-
               const text = paragraphs[j].text.trim()
               if (text.length > 0) {
-                wordCount += text.split(/\s+/).length
+                wordCount += text.split(/\s+/).filter((word) => word.length > 0).length
                 paragraphCount++
+              }
+            }
 
-                // In a real implementation, you would check for tables and graphics
-                // This is a simplified version
-                if (text.toLowerCase().includes("table")) {
-                  tableCount++
-                }
-                if (text.toLowerCase().includes("figure") || text.toLowerCase().includes("image")) {
-                  graphicCount++
-                }
+            // Count tables in this section (approximate)
+            for (let t = 0; t < tables.length; t++) {
+              // This is an approximation since we can't easily determine which section a table belongs to
+              // We'll assign tables to sections based on their position relative to headings
+              if (t >= startIndex && t < endIndex) {
+                tableCount++
+              }
+            }
+
+            // Count pictures in this section (approximate)
+            for (let p = 0; p < pictures.length; p++) {
+              // Similar approximation for pictures
+              if (p >= startIndex && p < endIndex) {
+                graphicCount++
               }
             }
 
             sections.push({
               title: headings[i].text,
+              level: headings[i].level,
               words: wordCount,
               paragraphs: paragraphCount,
               tables: tableCount,
@@ -629,13 +754,21 @@ export default function App(props) {
             })
           }
 
+          console.log(`Created ${sections.length} sections with statistics`)
+
           // Update planning items with actual statistics
           const updatedItems = planningItems.map((item) => {
-            const matchingSection = sections.find(
-              (section) =>
-                section.title.toLowerCase().includes(item.title.toLowerCase()) ||
-                item.title.toLowerCase().includes(section.title.toLowerCase()),
-            )
+            // Try to find an exact match first
+            let matchingSection = sections.find((section) => section.title.toLowerCase() === item.title.toLowerCase())
+
+            // If no exact match, try a partial match
+            if (!matchingSection) {
+              matchingSection = sections.find(
+                (section) =>
+                  section.title.toLowerCase().includes(item.title.toLowerCase()) ||
+                  item.title.toLowerCase().includes(section.title.toLowerCase()),
+              )
+            }
 
             if (matchingSection) {
               return {
@@ -644,20 +777,17 @@ export default function App(props) {
                 paragraphs: matchingSection.paragraphs,
                 tables: matchingSection.tables,
                 graphics: matchingSection.graphics,
+                // Update status if it has content but is still marked as empty
+                status: item.status === "empty" && matchingSection.words > 0 ? "created" : item.status,
               }
             }
 
-            // If no matching section found, keep existing stats or set to 0
-            return {
-              ...item,
-              words: item.words || 0,
-              paragraphs: item.paragraphs || 0,
-              tables: item.tables || 0,
-              graphics: item.graphics || 0,
-            }
+            // If no matching section found, keep existing stats
+            return item
           })
 
-          //setPlanningItems(updatedItems)
+          setPlanningItems(updatedItems)
+          console.log("Statistics updated successfully")
         } catch (contextError) {
           console.error("Error in Word.run context:", contextError)
 
@@ -686,7 +816,7 @@ export default function App(props) {
         graphics: Math.random() > 0.8 ? Math.floor(Math.random() * 2) : 0,
       }))
 
-      setPlanningItems(updatedItems)
+      //setPlanningItems(updatedItems)
     } finally {
       setRefreshing(false)
     }
@@ -735,13 +865,17 @@ export default function App(props) {
     }
   }
 
-  // Sync plan with document headers
+  // Update the syncPlanWithDocument function to maintain document order
+  // Around line 600, update the syncPlanWithDocument function:
+
   const syncPlanWithDocument = async () => {
     try {
+      setError("Syncing plan with document...")
+
       // Check if Word API is available
       if (!Word || typeof Word.run !== "function") {
         console.error("Word API is not available")
-        console.log("This feature requires the Word API, which is not available in this environment.")
+        setError("This feature requires the Word API, which is not available in this environment.")
         return
       }
 
@@ -778,9 +912,11 @@ export default function App(props) {
 
           // If no headings found in document
           if (documentHeadings.length === 0) {
-            console.log("No headings found in the document. Nothing to sync.")
+            setError("No headings found in the document. Nothing to sync.")
             return
           }
+
+          console.log(`Found ${documentHeadings.length} headings in document`)
 
           // Find headings in document but not in plan
           const headingsToAddToPlan = []
@@ -802,13 +938,53 @@ export default function App(props) {
               item.level === 1 && !documentHeadings.some((dh) => dh.text.toLowerCase() === item.title.toLowerCase()),
           )
 
+          // Create a new array for reorganized planning items
+          const newPlanningItems = []
+          const newTocItems = []
+
+          // First, add items that are in the document in the order they appear
+          for (const docHeading of documentHeadings) {
+            // Find matching item in planning items
+            const existingItem = planningItems.find(
+              (item) => item.title.toLowerCase() === docHeading.text.toLowerCase(),
+            )
+
+            if (existingItem) {
+              // Add existing item to the new array
+              newPlanningItems.push(existingItem)
+
+              // Also add to new TOC items
+              const existingTocItem = tocItems.find((item) => item.id === existingItem.id)
+              if (existingTocItem) {
+                newTocItems.push(existingTocItem)
+              }
+            }
+          }
+
+          // Then add items that are in plan but not in document
+          for (const planItem of planningItems) {
+            const exists = documentHeadings.some((dh) => dh.text.toLowerCase() === planItem.title.toLowerCase())
+
+            if (!exists) {
+              // Add to new arrays if not already added
+              if (!newPlanningItems.some((item) => item.id === planItem.id)) {
+                newPlanningItems.push(planItem)
+
+                // Also add to new TOC items
+                const existingTocItem = tocItems.find((item) => item.id === planItem.id)
+                if (existingTocItem && !newTocItems.some((item) => item.id === existingTocItem.id)) {
+                  newTocItems.push(existingTocItem)
+                }
+              }
+            }
+          }
+
           // Add new headings to plan
           if (headingsToAddToPlan.length > 0) {
-            const newPlanningItems = [...planningItems]
-            const newTocItems = [...tocItems]
+            let currentNextId = nextId
 
             for (const heading of headingsToAddToPlan) {
-              const id = nextId + headingsToAddToPlan.indexOf(heading)
+              const id = currentNextId++
 
               // Find the right position to insert based on document order
               let insertIndex = newPlanningItems.length
@@ -846,10 +1022,12 @@ export default function App(props) {
               })
             }
 
-            setPlanningItems(newPlanningItems)
-            setTocItems(newTocItems)
-            setNextId(nextId + headingsToAddToPlan.length)
+            setNextId(currentNextId)
           }
+
+          // Update state with reorganized items
+          setPlanningItems(newPlanningItems)
+          setTocItems(newTocItems)
 
           // Add missing L1 headings to document
           if (headingsToAddToDocument.length > 0) {
@@ -886,17 +1064,18 @@ export default function App(props) {
           await context.sync()
 
           // Save changes to document properties
-          setTimeout(() => saveToDocumentProperties(), 100)
+          await saveToDocumentProperties()
 
           // Refresh statistics
-          setTimeout(() => refreshStatistics(), 1000)
+          setTimeout(() => refreshStatistics(), 500)
 
           // Show summary
-          const message = `Sync complete!\n\n${headingsToAddToPlan.length} headings added to plan.\n${headingsToAddToDocument.length} headings added to document.`
-          console.log(message)
+          setError(
+            `Sync complete! ${headingsToAddToPlan.length} headings added to plan. ${headingsToAddToDocument.length} headings added to document.`,
+          )
         } catch (contextError) {
           console.error("Error in Word.run context:", contextError)
-          console.log("Failed to sync plan with document. Please try again.")
+          setError("Failed to sync plan with document. Please try again.")
         }
       })
     } catch (error) {
@@ -1083,6 +1262,16 @@ export default function App(props) {
             context.document.body.insertParagraph("", "End")
           }
 
+          // Inside the buildDocumentStructure function, after the for loop that inserts items:
+          // Update status of empty items to created
+          const updatedItems = planningItems.map((item) =>
+            item.status === "empty" ? { ...item, status: "created" } : item,
+          )
+          setPlanningItems(updatedItems)
+
+          // Save the updated status
+          setTimeout(() => saveToDocumentProperties(), 100)
+
           await context.sync()
           console.log("Document structure has been built with headers!")
         } catch (contextError) {
@@ -1189,11 +1378,13 @@ export default function App(props) {
             />
           </TooltipHost>
 
-          <TooltipHost content={"Delete Section"}>
+          {/* Replace the delete button in renderPlanningItem with: */}
+          <TooltipHost content={"Long click to delete"}>
             <IconButton
               iconProps={{ iconName: "Delete" }}
-              onClick={() => deleteSection(item.id)}
-              //disabled={item.isDefault}
+              onMouseDown={() => handleDeleteMouseDown(item.id)}
+              onMouseUp={handleDeleteMouseUp}
+              onMouseLeave={handleDeleteMouseUp}
               styles={{ root: { height: 24, width: 24 } }}
             />
           </TooltipHost>
@@ -1353,6 +1544,137 @@ export default function App(props) {
     }
   }
 
+  // Save plan to file
+  const savePlanToFile = () => {
+    try {
+      // Create a JSON string from the planning items
+      const planData = JSON.stringify(
+        {
+          planningItems: planningItems,
+          tocItems: tocItems,
+        },
+        null,
+        2,
+      )
+
+      // Create a blob from the JSON string
+      const blob = new Blob([planData], { type: "application/json" })
+
+      // Create a URL for the blob
+      const url = URL.createObjectURL(blob)
+
+      // Create a link element
+      const link = document.createElement("a")
+      link.href = url
+      link.download = "writing-plan.json"
+
+      // Append the link to the body
+      document.body.appendChild(link)
+
+      // Click the link to trigger the download
+      link.click()
+
+      // Remove the link from the body
+      document.body.removeChild(link)
+
+      // Revoke the URL
+      URL.revokeObjectURL(url)
+
+      setError("Plan saved to file successfully.")
+    } catch (error) {
+      console.error("Error saving plan to file:", error)
+      setError("Failed to save plan to file. Please try again.")
+    }
+  }
+
+  // Load plan from file
+  const loadPlanFromFile = () => {
+    try {
+      // Create a file input element
+      const input = document.createElement("input")
+      input.type = "file"
+      input.accept = ".json"
+
+      // Add an event listener for when a file is selected
+      input.onchange = (e) => {
+        const file = e.target.files[0]
+        if (!file) return
+
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          try {
+            const planData = JSON.parse(event.target.result)
+
+            // Validate the data
+            if (!planData.planningItems || !planData.tocItems) {
+              throw new Error("Invalid plan data format.")
+            }
+
+            // Find the highest ID
+            const highestId = Math.max(
+              ...planData.planningItems.map((item) => item.id || 0),
+              ...planData.tocItems.map((item) => item.id || 0),
+              0,
+            )
+
+            // Update the planning and TOC items
+            setPlanningItems(planData.planningItems)
+            setTocItems(planData.tocItems)
+
+            // Update the next ID
+            setNextId(highestId + 1)
+
+            // Hide the template button
+            setShowTemplateButton(false)
+
+            // Save after update
+            setTimeout(() => saveToDocumentProperties(), 100)
+
+            setError("Plan loaded from file successfully.")
+          } catch (parseError) {
+            console.error("Error parsing plan data:", parseError)
+            setError("Failed to parse plan data. Please check the file format.")
+          }
+        }
+
+        reader.readAsText(file)
+      }
+
+      // Click the input to open the file dialog
+      input.click()
+    } catch (error) {
+      console.error("Error loading plan from file:", error)
+      setError("Failed to load plan from file. Please try again.")
+    }
+  }
+
+  // Confirm load plan from file
+  const confirmLoadPlanFromFile = () => {
+    if (window.confirm("Loading a plan from file will discard all existing plan data! Are you sure?")) {
+      loadPlanFromFile()
+    }
+  }
+
+  // Handle delete button mouse down
+  const handleDeleteMouseDown = (id) => {
+    // Set a timer for 250ms
+    const timer = setTimeout(() => {
+      deleteSection(id)
+      setDeleteButtonTimer(null)
+    }, 250)
+
+    setDeleteButtonTimer(timer)
+  }
+
+  // Handle delete button mouse up
+  const handleDeleteMouseUp = () => {
+    // Clear the timer if mouse is released before timeout
+    if (deleteButtonTimer) {
+      clearTimeout(deleteButtonTimer)
+      setDeleteButtonTimer(null)
+    }
+  }
+
   return (
     <Stack styles={containerStyles} ref={containerRef}>
       {/* Error message */}
@@ -1363,10 +1685,19 @@ export default function App(props) {
         </div>
       )}
 
-      {/* Header */}
+      {/* Replace the header Stack with: */}
       <Stack horizontal horizontalAlign="space-between" styles={headerStyles}>
         <Stack>
-          <h1 style={titleStyles.root}>Writing Planner</h1>
+          <Stack horizontal verticalAlign="center">
+            <h1 style={titleStyles.root}>Writing Planner</h1>
+            <TooltipHost content="Help">
+              <IconButton
+                iconProps={{ iconName: "Help" }}
+                onClick={() => window.open("https://www.writepro.app/help/wpb", "_blank")}
+                styles={{ root: { height: 24, width: 24, marginLeft: 5 } }}
+              />
+            </TooltipHost>
+          </Stack>
           <p style={subtitleStyles.root}>Plan your work and focus on your magic.</p>
         </Stack>
         <Stack horizontal tokens={{ childrenGap: 5 }}>
@@ -1408,16 +1739,43 @@ export default function App(props) {
             <div style={{ overflowX: "hidden", maxHeight: "400px", overflowY: "auto" }}>
               {planningItems.map(renderPlanningItem)}
             </div>
+            {/* Inside the Planning tab, after the planning items list and before the Build Document button: */}
+            {showTemplateButton && planningItems.length === 0 && (
+              <PrimaryButton
+                text="Start with Template"
+                iconProps={{ iconName: "Template" }}
+                onClick={createTemplateStructure}
+                styles={{ root: { marginBottom: 10 } }}
+              />
+            )}
+
             <PrimaryButton
               text={buildingDocument ? "Building..." : "Build Document Structure"}
               iconProps={{ iconName: "BuildDefinition" }}
               onClick={buildDocumentStructure}
               disabled={buildingDocument}
             />
+
+            <Stack horizontal tokens={{ childrenGap: 10, padding: "10px 0" }}>
+              <DefaultButton
+                text="Save Plan to File"
+                iconProps={{ iconName: "Save" }}
+                onClick={savePlanToFile}
+                styles={{ root: { flexGrow: 1 } }}
+              />
+              <DefaultButton
+                text="Load Plan from File"
+                iconProps={{ iconName: "OpenFile" }}
+                onClick={confirmLoadPlanFromFile}
+                styles={{ root: { flexGrow: 1 } }}
+              />
+            </Stack>
           </Stack>
         </PivotItem>
         <PivotItem headerText="TOC Template" itemKey="toc" itemIcon="BulletedList">
           <Stack tokens={{ childrenGap: 10 }}>
+            {/* Update the TOC tab rendering section (around line 1200-1240) // Replace the existing TOC items rendering
+            with this: */}
             <div style={{ maxHeight: 200, overflowY: "auto" }}>
               {tocItems.map((item) => (
                 <div
@@ -1486,6 +1844,7 @@ export default function App(props) {
                 </div>
               ))}
             </div>
+            {/* Update the buttons in the TOC tab (around line 1240) // Replace the existing buttons with these: */}
             <Stack horizontal tokens={{ childrenGap: 10 }}>
               <DefaultButton
                 text="Add L1"
@@ -1626,4 +1985,3 @@ export default function App(props) {
     </Stack>
   )
 }
-
