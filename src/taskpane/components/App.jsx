@@ -1047,7 +1047,7 @@ export default function App(props) {
               }
 
               // Insert template text
-              const templateText = context.document.body.insertParagraph("<insert your text here>", "End")
+              const templateText = context.document.body.insertParagraph(`<${getDefaultComment(item.title)}>`, "End")
               if (templateText && templateText.font) {
                 templateText.font.set({
                   italic: true,
@@ -1249,7 +1249,7 @@ export default function App(props) {
             }
 
             // Insert template text under each header
-            const templateText = context.document.body.insertParagraph("<insert your text here>", "End")
+            const templateText = context.document.body.insertParagraph(`<${getDefaultComment(item.title)}>`, "End")
             if (templateText && templateText.font) {
               templateText.font.set({
                 italic: true,
