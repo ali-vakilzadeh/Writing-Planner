@@ -15,10 +15,12 @@ Writing Planner Basic is a task pane add-in for Microsoft Word, built with React
 *   **Document Synchronization:**
     *   **Build Document:** Generate basic heading structures in your Word document based on your plan.
     *   **Sync Plan:** Update your plan by detecting existing headings within your document.
-*   **Statistics:** Get insights into section content (word count, paragraphs, etc. - requires document interaction).
-*   **Default Template:** Start quickly with a pre-defined template for common document structures (loads automatically in empty documents).
+*   **Statistics:** Get insights into section content (word count, paragraphs, etc.).
+*   **Default Template:** Start quickly with a pre-defined template for common document structures (loads automatically in empty documents). You can create and save your own templates, so next documents will launch way faster!
 *   **Data Persistence:** Your plan is saved directly within the Word document's properties.
-*   **Import/Export TOC:** Share or reuse your document structures by importing/exporting the Table of Contents definition.
+*   **Maximum Privacy:** No server connection, your data is saved in file storage and will be encrypted directly of MS-Word. So you will have absolutely no privacy concerns.
+*   **Sharing without exposure:** You can save your plan into a JSON file and load it back later. This way, purging data is not the end of story.
+*   **Import/Export TOC:** Share or reuse your template document structures by importing/exporting the Table of Contents definition.
 
 ## Installation Guide
 
