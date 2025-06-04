@@ -1,0 +1,39 @@
+/*!
+ * @Privacy policy
+ * The "Writing Planner Basic" is loaded from a static web service on MS-Azure and runs locally on your system.
+ * All user information also is stored locally inside the user file and are not transferred or uploaded anywhere.
+ * Therefore, as a user, you have the full ownership and control over your data and information.
+ * If you don't want your data to be shared upon transferring your file to a third-party, simply
+ *   purge the planner data using the trash-can icon on top of the add-in window.
+ * for more information, or in case of any malfunction, write to: contact@pmia.app
+ */
+
+/*!
+ * @overview es6-promise - a tiny implementation of Promises/A+.
+ * @copyright Copyright (c) 2014 Yehuda Katz, Tom Dale, Stefan Penner and contributors (Conversion to ES6 API by Jake Archibald)
+ * @license   Licensed under MIT license
+ *            See https://raw.githubusercontent.com/stefanpenner/es6-promise/master/LICENSE
+ * @version   v4.2.8+1e68dce6
+ */
+
+/*! regenerator-runtime -- Copyright (c) 2014-present, Facebook, Inc. -- license (MIT): https://github.com/facebook/regenerator/blob/main/LICENSE */
+
+/**
+ * @license React
+ * react-jsx-runtime.production.js
+ *
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @license React
+ * scheduler.production.js
+ *
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
